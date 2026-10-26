@@ -1,0 +1,324 @@
+ORG 9000H
+DB 00111111B ; 0
+DB 00000110B ; 1
+DB 01011011B ; 2
+DB 01001111B ; 3
+DB 01100110B ; 4
+DB 01101101B ; 5
+DB 01111101B ; 6
+DB 00000111B ; 7
+DB 01111111B ; 8
+DB 01101111B ; 9
+
+;----------------------------------------------------------
+; DELAY SUBROUTINES (Located at 8300H)
+;----------------------------------------------------------
+ORG 8300H
+
+; SHORT_DELAY: Generates ~1ms delay for display multiplexing
+SHORT_DELAY:
+  MOV R6, #23            ; Outer loop counter
+SHORT_DELAY_1S_L2:
+  MOV R5, #45            ; Inner loop counter
+SHORT_DELAY_1S_L3:
+  DJNZ R5, SHORT_DELAY_1S_L3 ; Decrement R5 until 0
+  DJNZ R6, SHORT_DELAY_1S_L2 ; Repeat for R6
+  RET
+
+;----------------------------------------------------------
+; DISPLAY DRIVERS
+;----------------------------------------------------------
+
+; SHOW_DISPLAY: Activates a single 7-segment digit
+; Input: A = digit value (0-9), R5 = digit select mask
+SHOW_DISPLAY:
+  MOV DPTR, #9000H       ; Point to 7-segment lookup table
+  MOVC A, @A+DPTR        ; Get segment pattern for digit
+  MOV DPTR, #0E800H      ; 8255 Port A (segment data)
+  MOVX @DPTR, A          ; Send segments to display
+  MOV A, R5              ; Load digit select mask
+  MOV DPTR, #0E801H      ; 8255 Port B (digit select)
+  MOVX @DPTR, A          ; Activate digit
+  RET
+
+; MULTIPLEX_DISPLAYS: Cycles through all 6 digits
+; Uses R7 to control refresh duration
+MULTIPLEX_DISPLAYS:
+  MOV R7, #72            ; Refresh loop counter (72 iterations)
+MULTIPLEX_LOOP:
+  ; Digit 0 (Hours Tens)
+  MOV A, 15              ; Load stored hours tens value
+  MOV R5, #11011111B     ; Activate Digit 0 (active-low)
+  LCALL SHOW_DISPLAY
+  LCALL SHORT_DELAY      ; 1ms delay
+
+  ; Digit 1 (Hours Units)
+  MOV A, 14              ; Load hours units
+  MOV R5, #11101111B     ; Activate Digit 1
+  LCALL SHOW_DISPLAY
+  LCALL SHORT_DELAY
+
+  ; ... (Repeat for Digits 2-5: Minutes & Seconds)
+  ; [Full code includes all 6 digits]
+ 
+  MOV A, 13
+  MOV R5, #11110111B
+  LCALL SHOW_DISPLAY
+  LCALL SHORT_DELAY
+
+  MOV A, 12
+  MOV R5, #11111011B
+  LCALL SHOW_DISPLAY
+  LCALL SHORT_DELAY
+
+  MOV A, 11
+  MOV R5, #11111101B
+  LCALL SHOW_DISPLAY
+  LCALL SHORT_DELAY
+
+  MOV A, 10
+  MOV R5, #11111110B
+  LCALL SHOW_DISPLAY
+  LCALL SHORT_DELAY
+
+  DJNZ R7, MULTIPLEX_LOOP ; Repeat multiplexing
+  RET
+
+;----------------------------------------------------------
+; TIME MANAGEMENT
+;----------------------------------------------------------
+
+; RESET_STOPWATCH: Clears stopwatch memory (9003H-9005H)
+RESET_STOPWATCH:
+  MOV DPTR, #9003H       ; Stopwatch seconds address
+  MOV A, #0
+  MOVX @DPTR, A          ; Reset seconds
+  INC DPL                ; Move to minutes
+  MOVX @DPTR, A          ; Reset minutes
+  INC DPL                ; Move to hours
+  MOVX @DPTR, A          ; Reset hours
+  RET
+
+; RESET_CLOCK: Clears clock memory (9000H-9002H)
+RESET_CLOCK:
+  MOV DPTR, #9000H       ; Clock hours address
+  MOV A, #0
+  MOVX @DPTR, A          ; Reset hours
+  INC DPL                ; Move to minutes
+  MOVX @DPTR, A          ; Reset minutes
+  INC DPL                ; Move to seconds
+  MOVX @DPTR, A          ; Reset seconds
+  RET
+
+; INCREMENT_STOPWATCH: Updates stopwatch time (9003H-9005H)
+INCREMENT_STOPWATCH:
+  INC 21                 ; Internal counter
+  MOV DPTR, #9005H       ; Stopwatch seconds
+  MOVX A, @DPTR
+  INC A                  ; Increment seconds
+  MOV B, #60             ; Check for minute rollover
+  DIV AB                 ; A=quotient (minutes), B=remainder (seconds)
+  MOV 08, A              ; Temp store minutes
+  MOV A, B
+  MOVX @DPTR, A          ; Update seconds
+  MOV A, 08
+  JNZ INCREMENT_STOPWATCH_INC_MIN ; If minutes >0, update
+  RET
+
+; ... (INCREMENT_CLOCK and other time functions follow similar logic)
+
+INCREMENT_STOPWATCH_INC_MIN:
+  DEC DPL
+  MOVX A, @DPTR
+  INC A
+  MOV B, #60
+  DIV AB
+  MOV 08, A
+  MOV A, B
+  MOVX @DPTR, A
+  MOV A, 08
+  JNZ INCREMENT_STOPWATCH_INC_HR
+  RET
+
+INCREMENT_STOPWATCH_INC_HR:
+  DEC DPL
+  MOVX A, @DPTR
+  INC A
+  MOV B, #24
+  DIV AB
+  MOV A, B
+  MOVX @DPTR, A
+  RET
+
+INCREMENT_CLOCK:
+  MOV DPTR, #9002H
+  MOVX A, @DPTR
+  INC A
+  MOV B, #60
+  DIV AB
+  MOV 08, A
+  MOV A, B
+  MOVX @DPTR, A
+  MOV A, 08
+  JNZ INCREMENT_CLOCK_INC_MIN
+  RET
+
+INCREMENT_CLOCK_INC_MIN:
+  DEC DPL
+  MOVX A, @DPTR
+  INC A
+  MOV B, #60
+  DIV AB
+  MOV 08, A
+  MOV A, B
+  MOVX @DPTR, A
+  MOV A, 08
+  JNZ INCREMENT_CLOCK_INC_HR
+  RET
+
+INCREMENT_CLOCK_INC_HR:
+  DEC DPL
+  MOVX A, @DPTR
+  INC A
+  MOV B, #24
+  DIV AB
+  MOV A, B
+  MOVX @DPTR, A
+  RET
+
+
+;----------------------------------------------------------
+; DISPLAY MODE HANDLER
+; 9011H: Mode flag (0=Stopwatch, 1=Clock)
+;----------------------------------------------------------
+DISPLAY_MODE:
+  MOV R0, #6             ; Number of digits to process
+  MOV DPTR, #9011H       ; Load mode flag
+  MOVX A, @DPTR
+  MOV R1, #10            ; Start of display buffer
+  JNZ DISPLAY_MODE_CLK   ; Jump if clock mode
+
+DISPLAY_MODE_SW:         ; Stopwatch mode
+  MOV DPTR, #9005H       ; Stopwatch seconds address
+  JMP DISPLAY_STOPWATCH_LOOP
+
+DISPLAY_MODE_CLK:        ; Clock mode
+  MOV DPTR, #9002H       ; Clock seconds address
+
+DISPLAY_STOPWATCH_LOOP:
+  MOVX A, @DPTR          ; Load time value
+  MOV B, #10             ; Split into tens/units
+  DIV AB
+  MOV @R1, B             ; Store units
+  INC R1
+  MOV @R1, A             ; Store tens
+  INC R1
+  DEC DPL                ; Move to next higher time unit
+  DJNZ R0, DISPLAY_STOPWATCH_LOOP ; Process all digits
+  LCALL MULTIPLEX_DISPLAYS ; Update display
+  RET
+
+;----------------------------------------------------------
+; INTERRUPT SERVICE ROUTINES (Timer 1 for 1-second updates)
+;----------------------------------------------------------
+ORG 0FFF6H               ; Timer 1 interrupt vector
+  INC 20                 ; Interrupt counter
+  JMP TIMER_1S
+
+ORG 9100H
+TIMER_1S:
+  CLR TR1                ; Stop Timer 1
+  MOV TH1, #3CH          ; Reload timer for 50ms (12MHz clock)
+  MOV TL1, #0B0H
+  DJNZ 22H, TIMER_1S_CONTINUE ; Check if 1 second passed (20 overflows)
+  MOV 22H, #25           ; Reset counter
+  JMP TIMER_EVENT        ; Update time
+TIMER_1S_CONTINUE:
+  SETB TR1               ; Restart timer
+  RETI
+
+TIMER_EVENT:             ; 1-second tasks
+  LCALL INCREMENT_CLOCK  ; Update clock
+  MOV 16, DPH            ; Save registers
+  MOV 17, DPL
+  MOV DPTR, #9010H       ; Check stopwatch active flag
+  MOV 18, A
+  MOVX A, @DPTR
+  JZ TIMER_INT_NINC_SW   ; Skip if stopwatch inactive
+  LCALL INCREMENT_STOPWATCH ; Update stopwatch
+TIMER_INT_NINC_SW:
+  MOV A, 18              ; Restore registers
+  MOV DPH, 16
+  MOV DPL, 17
+  SETB TR1               ; Restart timer
+  RETI
+
+;----------------------------------------------------------
+; MAIN PROGRAM & INITIALIZATION
+;----------------------------------------------------------
+ORG 8100H
+MOV A, #70H            ; Initialize stack pointer
+MOV SP, A
+
+; Configure 8255 PPI
+MOV A, #10001001B      ; Port A/B = output, Port C = input
+MOV DPTR, #0E803H      ; 8255 control register
+MOVX @DPTR, A
+
+; Initialize Port C (buttons)
+MOV DPTR, #0E802H      ; Port C address
+MOV A, #0FFH           ; Activate pull-ups
+MOVX @DPTR, A
+
+; Reset time counters
+MOV 20, #0             ; Clear interrupt counter
+MOV 21, #0             ; Clear stopwatch counter
+CALL RESET_STOPWATCH
+CALL RESET_CLOCK
+
+; Configure Timer 1 (50ms interrupts)
+MOV TMOD, #10H         ; Timer 1, Mode 1 (16-bit)
+MOV TH1, #3CH          ; High byte for 50ms
+MOV TL1, #0B0H         ; Low byte
+MOV 22H, #25           ; 20 interrupts = 1 second
+SETB ET1               ; Enable Timer 1 interrupt
+SETB EA                ; Global interrupt enable
+SETB TR1               ; Start timer
+
+;----------------------------------------------------------
+; MAIN LOOP: Button handling & display updates
+;----------------------------------------------------------
+ITERATE:
+  ; Read mode switch (Port C, bit 1)
+  MOV DPTR, #0E802H
+  MOVX A, @DPTR
+  MOV 20H, A
+  JNB 20H.1, ITERATE_RESET_MODE ; If button pressed
+  MOV DPTR, #9011H       ; Set mode to Clock
+  MOV A, #1
+  MOVX @DPTR, A
+  JMP ITERATE_MODE_END
+ITERATE_RESET_MODE:      ; Set mode to Stopwatch
+  MOV DPTR, #9011H
+  MOV A, #0
+  MOVX @DPTR, A
+ITERATE_MODE_END:
+  ; Start/Stop button (Port C, bit 0)
+  JNB 20H.0, ITERATE_RESET_SW
+  MOV DPTR, #9010H       ; Start stopwatch
+  MOV A, #1
+  MOVX @DPTR, A
+  JB 21H.0, ITERATE_SW_END ; Skip if already running
+  CALL RESET_STOPWATCH   ; Reset on first press
+  SETB 21H.0             ; Set running flag
+  JMP ITERATE_SW_END
+ITERATE_RESET_SW:        ; Stop stopwatch
+  MOV DPTR, #9010H
+  MOV A, #0
+  MOVX @DPTR, A
+  CLR 21H.0              ; Clear running flag
+ITERATE_SW_END:
+  LCALL DISPLAY_MODE     ; Update display
+  JMP ITERATE            ; Loop forever
+
+END
